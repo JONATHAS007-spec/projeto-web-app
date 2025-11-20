@@ -1,9 +1,36 @@
 "use client";
 
-import { useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sparkles, Mail, Lock, User, ArrowRight, Heart } from "lucide-react";
+import { supabase } from "@/lib/supabase";
+import { Sparkles, Mail, Lock, User, ArrowRight, AlertCircle } from "lucide-react";
+
+// Funcao para normalizar mensagens de erro SEM ACENTOS
+const normalizeErrorMessage = (message: string): string => {
+  const errorMap: { [key: string]: string } = {
+    'Invalid login credentials': 'Email ou senha incorretos',
+    'User already registered': 'Este email ja esta cadastrado',
+    'Email not confirmed': 'Confirme seu email antes de fazer login',
+    'Password should be at least 6 characters': 'A senha deve ter pelo menos 6 caracteres',
+    'Unable to validate email address': 'Email invalido',
+    'Signup requires a valid password': 'Senha invalida',
+    'Failed to fetch': 'Erro de conexao. Verifique suas credenciais do Supabase.',
+    'String contains non ISO-8859-1 code point': 'Erro de codificacao. Tente novamente.',
+  };
+
+  for (const [key, value] of Object.entries(errorMap)) {
+    if (message.includes(key)) {
+      return value;
+    }
+  }
+
+  return 'Ocorreu um erro. Tente novamente.';
+};
+
+// Funcao para remover acentos de strings
+const removeAccents = (str: string): string => {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+};
 
 export default function AuthPage() {
   const router = useRouter();
@@ -13,62 +40,97 @@ export default function AuthPage() {
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [supabaseConfigured, setSupabaseConfigured] = useState(true);
+
+  useEffect(() => {
+    // Verificar se o Supabase esta configurado
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+    
+    if (!supabaseUrl || !supabaseKey || 
+        supabaseUrl.includes('placeholder') || 
+        supabaseKey.includes('placeholder')) {
+      setSupabaseConfigured(false);
+      setError('Configure as credenciais do Supabase para usar a autenticacao. Clique no banner laranja acima para configurar.');
+    }
+  }, []);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!supabaseConfigured) {
+      setError('Configure as credenciais do Supabase primeiro. Clique no banner laranja acima.');
+      return;
+    }
+
     setLoading(true);
     setError("");
 
     try {
+      // Remover acentos do nome antes de enviar
+      const normalizedFullName = removeAccents(fullName);
+
       if (isLogin) {
         const { data, error } = await supabase.auth.signInWithPassword({
-          email,
+          email: email.trim(),
           password,
         });
 
-        if (error) throw error;
-        
+        if (error) {
+          setError(normalizeErrorMessage(error.message));
+          setLoading(false);
+          return;
+        }
+
         if (data.user) {
           router.push("/dashboard");
         }
       } else {
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: email.trim(),
           password,
           options: {
             data: {
-              full_name: fullName,
+              full_name: normalizedFullName,
             },
           },
         });
 
-        if (error) throw error;
+        if (error) {
+          setError(normalizeErrorMessage(error.message));
+          setLoading(false);
+          return;
+        }
 
         if (data.user) {
-          // Criar perfil inicial
+          // Criar perfil do usuario
           const { error: profileError } = await supabase
             .from("profiles")
-            .insert({
-              id: data.user.id,
-              email: data.user.email,
-              full_name: fullName,
-            });
+            .insert([
+              {
+                id: data.user.id,
+                email: data.user.email,
+                full_name: normalizedFullName,
+              },
+            ]);
 
-          if (profileError) throw profileError;
+          if (profileError) {
+            console.error("Erro ao criar perfil:", profileError);
+          }
 
           router.push("/onboarding");
         }
       }
     } catch (err: any) {
-      setError(err.message || "Erro ao autenticar");
+      setError(normalizeErrorMessage(err.message || 'Erro desconhecido'));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pink-100 via-purple-100 to-teal-100 flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
+    <div className="min-h-screen bg-gradient-to-br from-pink-50 via-purple-50 to-teal-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 mb-4">
@@ -80,19 +142,19 @@ export default function AuthPage() {
             </span>
           </div>
           <p className="text-gray-600 text-lg">
-            {isLogin ? "Bem-vinda de volta!" : "Comece sua jornada de transformação"}
+            {isLogin ? "Bem-vinda de volta!" : "Comece sua jornada de transformacao"}
           </p>
         </div>
 
         {/* Form Card */}
         <div className="bg-white rounded-3xl shadow-2xl p-8">
-          <div className="flex gap-2 mb-6">
+          <div className="flex gap-2 mb-8">
             <button
               onClick={() => setIsLogin(true)}
               className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
                 isLogin
-                  ? "bg-gradient-to-r from-pink-500 to-purple-500 text-white"
-                  : "bg-gray-100 text-gray-600"
+                  ? "bg-gradient-to-r from-pink-500 to-purple-500 text-white shadow-lg"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >
               Entrar
@@ -101,28 +163,35 @@ export default function AuthPage() {
               onClick={() => setIsLogin(false)}
               className={`flex-1 py-3 rounded-xl font-semibold transition-all ${
                 !isLogin
-                  ? "bg-gradient-to-r from-pink-500 to-purple-500 text-white"
-                  : "bg-gray-100 text-gray-600"
+                  ? "bg-gradient-to-r from-pink-500 to-purple-500 text-white shadow-lg"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
               }`}
             >
               Cadastrar
             </button>
           </div>
 
-          <form onSubmit={handleAuth} className="space-y-4">
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+          )}
+
+          <form onSubmit={handleAuth} className="space-y-5">
             {!isLogin && (
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Nome Completo
                 </label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                   <input
                     type="text"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    className="w-full pl-11 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none transition-colors"
-                    placeholder="Seu nome"
+                    className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none transition-colors"
+                    placeholder="Seu nome completo"
                     required={!isLogin}
                   />
                 </div>
@@ -134,12 +203,12 @@ export default function AuthPage() {
                 Email
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none transition-colors"
+                  className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none transition-colors"
                   placeholder="seu@email.com"
                   required
                 />
@@ -151,12 +220,12 @@ export default function AuthPage() {
                 Senha
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none transition-colors"
+                  className="w-full pl-12 pr-4 py-3.5 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none transition-colors"
                   placeholder="••••••••"
                   required
                   minLength={6}
@@ -164,16 +233,21 @@ export default function AuthPage() {
               </div>
             </div>
 
-            {error && (
-              <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3 text-red-600 text-sm">
-                {error}
+            {isLogin && (
+              <div className="text-right">
+                <button
+                  type="button"
+                  className="text-sm text-purple-600 hover:text-purple-700 font-semibold"
+                >
+                  Esqueceu a senha?
+                </button>
               </div>
             )}
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-pink-500 to-purple-500 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              disabled={loading || !supabaseConfigured}
+              className="w-full bg-gradient-to-r from-pink-500 to-purple-500 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {loading ? (
                 "Carregando..."
@@ -186,26 +260,41 @@ export default function AuthPage() {
             </button>
           </form>
 
-          {isLogin && (
-            <div className="mt-4 text-center">
-              <button className="text-purple-600 text-sm font-semibold hover:underline">
-                Esqueceu sua senha?
-              </button>
-            </div>
-          )}
+          <div className="mt-6 text-center text-sm text-gray-600">
+            {isLogin ? (
+              <p>
+                Nao tem uma conta?{" "}
+                <button
+                  onClick={() => setIsLogin(false)}
+                  className="text-purple-600 font-semibold hover:text-purple-700"
+                >
+                  Cadastre-se gratis
+                </button>
+              </p>
+            ) : (
+              <p>
+                Ja tem uma conta?{" "}
+                <button
+                  onClick={() => setIsLogin(true)}
+                  className="text-purple-600 font-semibold hover:text-purple-700"
+                >
+                  Faca login
+                </button>
+              </p>
+            )}
+          </div>
         </div>
 
-        {/* Trust Badges */}
-        <div className="mt-6 flex justify-center gap-6 text-sm text-gray-600">
-          <div className="flex items-center gap-1">
-            <Heart className="w-4 h-4 text-pink-500" />
-            <span>100K+ usuárias</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <Sparkles className="w-4 h-4 text-purple-500" />
-            <span>Dados seguros</span>
-          </div>
-        </div>
+        <p className="text-center text-sm text-gray-500 mt-6">
+          Ao continuar, voce concorda com nossos{" "}
+          <a href="#" className="text-purple-600 hover:underline">
+            Termos de Uso
+          </a>{" "}
+          e{" "}
+          <a href="#" className="text-purple-600 hover:underline">
+            Politica de Privacidade
+          </a>
+        </p>
       </div>
     </div>
   );

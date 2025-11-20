@@ -3,56 +3,106 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
-import { Sparkles, ArrowLeft, Save, Zap, Moon, Droplet, Smile, TrendingUp } from "lucide-react";
+import { 
+  Sparkles, ArrowLeft, Save, Zap, Moon, Droplet, 
+  Smile, TrendingUp, Calendar 
+} from "lucide-react";
 
 export default function ProgressPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    energy_level: 50,
-    skin_quality: 50,
-    sleep_quality: 50,
+    energyLevel: 50,
+    skinQuality: 50,
+    sleepQuality: 50,
     hydration: 50,
     mood: 50,
     notes: "",
   });
 
-  const handleSave = async () => {
-    setLoading(true);
-    try {
+  useEffect(() => {
+    const checkAuth = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      
       if (!user) {
         router.push("/auth");
-        return;
+      } else {
+        setUserId(user.id);
+        loadTodayProgress(user.id);
       }
+    };
+    checkAuth();
+  }, [router]);
 
+  const loadTodayProgress = async (userId: string) => {
+    const today = new Date().toISOString().split("T")[0];
+    const { data } = await supabase
+      .from("progress_tracking")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("date", today)
+      .single();
+
+    if (data) {
+      setFormData({
+        energyLevel: data.energy_level,
+        skinQuality: data.skin_quality,
+        sleepQuality: data.sleep_quality,
+        hydration: data.hydration,
+        mood: data.mood,
+        notes: data.notes || "",
+      });
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!userId) return;
+
+    setLoading(true);
+    try {
       const today = new Date().toISOString().split("T")[0];
 
-      // Verificar se já existe registro hoje
+      // Verificar se já existe progresso para hoje
       const { data: existing } = await supabase
         .from("progress_tracking")
         .select("id")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .eq("date", today)
         .single();
 
       if (existing) {
-        // Atualizar registro existente
+        // Atualizar
         await supabase
           .from("progress_tracking")
-          .update(formData)
+          .update({
+            energy_level: formData.energyLevel,
+            skin_quality: formData.skinQuality,
+            sleep_quality: formData.sleepQuality,
+            hydration: formData.hydration,
+            mood: formData.mood,
+            notes: formData.notes,
+          })
           .eq("id", existing.id);
       } else {
-        // Criar novo registro
+        // Inserir
         await supabase.from("progress_tracking").insert({
-          user_id: user.id,
+          user_id: userId,
           date: today,
-          ...formData,
+          energy_level: formData.energyLevel,
+          skin_quality: formData.skinQuality,
+          sleep_quality: formData.sleepQuality,
+          hydration: formData.hydration,
+          mood: formData.mood,
+          notes: formData.notes,
         });
       }
 
-      router.push("/dashboard");
+      setSuccess(true);
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 1500);
     } catch (error) {
       console.error("Erro ao salvar progresso:", error);
     } finally {
@@ -60,171 +110,162 @@ export default function ProgressPage() {
     }
   };
 
+  const metrics = [
+    {
+      label: "Nível de Energia",
+      value: formData.energyLevel,
+      key: "energyLevel",
+      icon: <Zap className="w-5 h-5" />,
+      color: "pink",
+    },
+    {
+      label: "Qualidade da Pele",
+      value: formData.skinQuality,
+      key: "skinQuality",
+      icon: <Sparkles className="w-5 h-5" />,
+      color: "purple",
+    },
+    {
+      label: "Qualidade do Sono",
+      value: formData.sleepQuality,
+      key: "sleepQuality",
+      icon: <Moon className="w-5 h-5" />,
+      color: "indigo",
+    },
+    {
+      label: "Hidratação",
+      value: formData.hydration,
+      key: "hydration",
+      icon: <Droplet className="w-5 h-5" />,
+      color: "blue",
+    },
+    {
+      label: "Humor",
+      value: formData.mood,
+      key: "mood",
+      icon: <Smile className="w-5 h-5" />,
+      color: "teal",
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-pink-50 via-purple-50 to-teal-50">
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <div className="mb-6">
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-semibold transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            Voltar ao Dashboard
-          </button>
-        </div>
-
-        <div className="bg-white rounded-3xl shadow-2xl p-8">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="bg-gradient-to-br from-pink-400 to-purple-500 rounded-full p-3">
-              <TrendingUp className="w-8 h-8 text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Registrar Progresso</h1>
-              <p className="text-gray-600">Como você está se sentindo hoje?</p>
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-4xl mx-auto px-4 py-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5 text-gray-600" />
+            </button>
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-6 h-6 text-purple-500" />
+              <h1 className="text-xl font-bold text-gray-900">
+                Registrar Progresso
+              </h1>
             </div>
           </div>
+        </div>
+      </header>
 
-          <div className="space-y-8">
-            {/* Energy Level */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-pink-500" />
-                  <label className="font-semibold text-gray-900">Nível de Energia</label>
-                </div>
-                <span className="text-2xl font-bold text-pink-500">{formData.energy_level}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={formData.energy_level}
-                onChange={(e) => setFormData({ ...formData, energy_level: parseInt(e.target.value) })}
-                className="w-full h-3 bg-gray-200 rounded-full appearance-none cursor-pointer accent-pink-500"
-              />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Baixa</span>
-                <span>Média</span>
-                <span>Alta</span>
-              </div>
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <div className="bg-white rounded-3xl shadow-2xl p-8">
+          <div className="mb-8">
+            <div className="flex items-center gap-2 mb-2">
+              <Calendar className="w-5 h-5 text-purple-500" />
+              <h2 className="text-2xl font-bold text-gray-900">Como você está hoje?</h2>
             </div>
+            <p className="text-gray-600">
+              {new Date().toLocaleDateString("pt-BR", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            </p>
+          </div>
 
-            {/* Skin Quality */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-purple-500" />
-                  <label className="font-semibold text-gray-900">Qualidade da Pele</label>
+          <form onSubmit={handleSubmit} className="space-y-8">
+            {metrics.map((metric) => (
+              <div key={metric.key}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className={`text-${metric.color}-500`}>{metric.icon}</div>
+                    <label className="font-semibold text-gray-900">
+                      {metric.label}
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-2xl font-bold text-${metric.color}-500`}>
+                      {metric.value}
+                    </span>
+                    <span className="text-gray-500">%</span>
+                  </div>
                 </div>
-                <span className="text-2xl font-bold text-purple-500">{formData.skin_quality}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={formData.skin_quality}
-                onChange={(e) => setFormData({ ...formData, skin_quality: parseInt(e.target.value) })}
-                className="w-full h-3 bg-gray-200 rounded-full appearance-none cursor-pointer accent-purple-500"
-              />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Precisa cuidados</span>
-                <span>Normal</span>
-                <span>Radiante</span>
-              </div>
-            </div>
-
-            {/* Sleep Quality */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Moon className="w-5 h-5 text-indigo-500" />
-                  <label className="font-semibold text-gray-900">Qualidade do Sono</label>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={metric.value}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      [metric.key]: parseInt(e.target.value),
+                    })
+                  }
+                  className="w-full h-3 rounded-full appearance-none cursor-pointer"
+                  style={{
+                    background: `linear-gradient(to right, 
+                      var(--tw-gradient-from) 0%, 
+                      var(--tw-gradient-to) ${metric.value}%, 
+                      #e5e7eb ${metric.value}%, 
+                      #e5e7eb 100%)`,
+                    "--tw-gradient-from": `var(--${metric.color}-400)`,
+                    "--tw-gradient-to": `var(--${metric.color}-500)`,
+                  } as React.CSSProperties}
+                />
+                <div className="flex justify-between text-xs text-gray-500 mt-1">
+                  <span>Muito Baixo</span>
+                  <span>Excelente</span>
                 </div>
-                <span className="text-2xl font-bold text-indigo-500">{formData.sleep_quality}%</span>
               </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={formData.sleep_quality}
-                onChange={(e) => setFormData({ ...formData, sleep_quality: parseInt(e.target.value) })}
-                className="w-full h-3 bg-gray-200 rounded-full appearance-none cursor-pointer accent-indigo-500"
-              />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Ruim</span>
-                <span>Regular</span>
-                <span>Excelente</span>
-              </div>
-            </div>
+            ))}
 
-            {/* Hydration */}
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Droplet className="w-5 h-5 text-blue-500" />
-                  <label className="font-semibold text-gray-900">Hidratação</label>
-                </div>
-                <span className="text-2xl font-bold text-blue-500">{formData.hydration}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={formData.hydration}
-                onChange={(e) => setFormData({ ...formData, hydration: parseInt(e.target.value) })}
-                className="w-full h-3 bg-gray-200 rounded-full appearance-none cursor-pointer accent-blue-500"
-              />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Desidratada</span>
-                <span>Moderada</span>
-                <span>Bem hidratada</span>
-              </div>
-            </div>
-
-            {/* Mood */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Smile className="w-5 h-5 text-teal-500" />
-                  <label className="font-semibold text-gray-900">Humor</label>
-                </div>
-                <span className="text-2xl font-bold text-teal-500">{formData.mood}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={formData.mood}
-                onChange={(e) => setFormData({ ...formData, mood: parseInt(e.target.value) })}
-                className="w-full h-3 bg-gray-200 rounded-full appearance-none cursor-pointer accent-teal-500"
-              />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>Baixo</span>
-                <span>Neutro</span>
-                <span>Ótimo</span>
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label className="font-semibold text-gray-900 mb-3 block">Observações (opcional)</label>
+              <label className="block font-semibold text-gray-900 mb-3">
+                Observações (opcional)
+              </label>
               <textarea
                 value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                placeholder="Como foi seu dia? Alguma observação especial?"
+                onChange={(e) =>
+                  setFormData({ ...formData, notes: e.target.value })
+                }
                 className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-purple-500 focus:outline-none transition-colors resize-none"
                 rows={4}
+                placeholder="Como foi seu dia? Alguma observação importante?"
               />
             </div>
 
-            {/* Save Button */}
+            {success && (
+              <div className="p-4 bg-green-50 border-2 border-green-200 rounded-xl">
+                <p className="text-sm text-green-600 font-semibold text-center">
+                  ✓ Progresso salvo com sucesso! Redirecionando...
+                </p>
+              </div>
+            )}
+
             <button
-              onClick={handleSave}
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-pink-500 to-purple-500 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              type="submit"
+              disabled={loading || success}
+              className="w-full bg-gradient-to-r from-pink-500 to-purple-500 text-white py-5 rounded-xl font-bold text-lg shadow-lg hover:shadow-xl hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
             >
               {loading ? (
-                "Salvando..."
+                <>
+                  <Sparkles className="w-5 h-5 animate-spin" />
+                  Salvando...
+                </>
               ) : (
                 <>
                   <Save className="w-5 h-5" />
@@ -232,7 +273,7 @@ export default function ProgressPage() {
                 </>
               )}
             </button>
-          </div>
+          </form>
         </div>
       </div>
     </div>
